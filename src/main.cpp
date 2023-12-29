@@ -1,6 +1,8 @@
 #include <windows.h>
 #include <stdio.h>
 
+static bool Running;
+
 LRESULT CALLBACK MainWindowCallback(
 		HWND Window,
 		UINT Message,
@@ -14,8 +16,14 @@ LRESULT CALLBACK MainWindowCallback(
 	{
 	    OutputDebugStringA("WM_CREATE\n");
 	} break;
+    case WM_CLOSE:
+	{
+	    Running = false;
+	    OutputDebugStringA("WM_CLOSE\n");
+	}
     case WM_DESTROY:
 	{
+	    Running = false;
 	    OutputDebugStringA("WM_DESTROY\n");
 	} break;
     case WM_SIZE:
@@ -79,13 +87,17 @@ int WINAPI WinMain(HINSTANCE Instance,
 		      0, 0, Instance, 0);
 	if (WindowHandle)
 	{
+	    Running = true;
 	    MSG Msg;
-	    while(GetMessageA(&Msg, WindowHandle, 0, 0) > 0)
-	    {
-		TranslateMessage(&Msg);
-		DispatchMessage(&Msg);
+	    while(Running) {
+		BOOL GetMessageResult = GetMessageA(&Msg, WindowHandle, 0, 0) > 0;
+		if (GetMessageResult > 0)
+		{
+		    TranslateMessage(&Msg);
+		    DispatchMessage(&Msg);
+		}
+		else break;
 	    }
-
 	}
 	else
 	{
