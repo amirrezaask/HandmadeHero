@@ -1,83 +1,104 @@
 #include <windows.h>
-#include <stdio.h>
 #include <stdint.h>
 
 static bool Running;
 
-static BITMAPINFO BitmapInfo;
-static void *BitmapMemory;
-static int BitmapWidth;
-static int BitmapHeight;
-static int BytesPerPixel = 4;
+struct win32_offscreen_buffer
+{
+    BITMAPINFO Info;
+    void* Memory;
+    int Width;
+    int Height;
+    int Pitch;
+    int BytesPerPixel;
+};
+static win32_offscreen_buffer GlobalBackBuffer;
+struct win32_window_dimension
+{
+    int Height;
+    int Width;
+};
 
-void
-Win32RenderGradient(int XOffset, int YOffset)
+static win32_window_dimension
+Win32GetWindowDimension(HWND Window)
+{
+    win32_window_dimension Result;
+    RECT rect;
+    GetClientRect(Window, &rect);
+    int X = rect.left;
+    int Y = rect.top;
+    Result.Width = rect.right - rect.left;
+    Result.Height = rect.bottom - rect.top;
+    return (Result);
+}
+
+static void
+Win32RenderGradient(win32_offscreen_buffer Buffer, int XOffset, int YOffset)
 {
     /* @Note(amirreza):
       Our BitmapMemory is a 1D space in memory,
       but we need to interpret it as a 2D Matrix of pixels,
      */
     
-    uint8_t* Row = (uint8_t*)BitmapMemory; // Pointer to each row in our BitmapMemory
-    int Pitch = BitmapWidth*BytesPerPixel; // Amount of byte offset that we need to go from start of the row to start of next row.
+    uint8_t* Row = (uint8_t*)Buffer.Memory; // Pointer to each row in our BitmapMemory
 
-    for (int Y = 0; Y < BitmapHeight; ++Y)
+    for (int Y = 0; Y < Buffer.Height; ++Y)
 	{
 	    uint32_t* Pixel = (uint32_t*)Row;
-	    for (int X = 0; X < BitmapWidth; ++X)
+	    for (int X = 0; X < Buffer.Width; ++X)
 		{
 		    //Note(Amirreza): Little Endian
 		    // Memory : BB GG RR xx
 		    // Register : xx RR GG BB
 		    int Blue = X + XOffset;
 		    int Green = Y + YOffset;
-		    uint32_t Color = (Green << 16 | Blue);
+		    uint32_t Color = (Green << 8 | Blue);
 		    *Pixel = Color;
 		    ++Pixel;
 		}
-	    Row += Pitch;
+	    Row += Buffer.Pitch;
     
 	}
 }
 
-void
-Win32ResizeDIBSection(int Width, int Height)
+static void
+Win32ResizeDIBSection(win32_offscreen_buffer *Buffer, int Width, int Height)
 {
 
     // Free last memory allocated by us
-    if (BitmapMemory)
+    if (Buffer->Memory)
     {
-	VirtualFree(BitmapMemory, 0, MEM_RELEASE);
+	VirtualFree(Buffer->Memory, 0, MEM_RELEASE);
     }
 
-    BitmapWidth = Width;
-    BitmapHeight = Height;
+    Buffer->Width = Width;
+    Buffer->Height = Height;
+    Buffer->BytesPerPixel = 4;
     
     // Create Bitmap info, basically metadata about our bitmap buffer
-    BitmapInfo.bmiHeader.biSize = sizeof(BitmapInfo.bmiHeader);
-    BitmapInfo.bmiHeader.biWidth = BitmapWidth;
-    BitmapInfo.bmiHeader.biHeight = -BitmapHeight;
-    BitmapInfo.bmiHeader.biPlanes = 1;
-    BitmapInfo.bmiHeader.biBitCount = 32;
-    BitmapInfo.bmiHeader.biCompression = BI_RGB;
+    Buffer->Info.bmiHeader.biSize = sizeof(Buffer->Info.bmiHeader);
+    Buffer->Info.bmiHeader.biWidth = Buffer->Width;
+    Buffer->Info.bmiHeader.biHeight = -Buffer->Height;
+    Buffer->Info.bmiHeader.biPlanes = 1;
+    Buffer->Info.bmiHeader.biBitCount = 32;
+    Buffer->Info.bmiHeader.biCompression = BI_RGB;
 
     // Allocate actual memory for bitmap.
-    int BitmapMemorySize = 4 * BitmapWidth * BitmapHeight;
-    BitmapMemory = VirtualAlloc(0, BitmapMemorySize, MEM_COMMIT, PAGE_READWRITE);
+    int BitmapMemorySize = 4 * Buffer->Width * Buffer->Height;
+    Buffer->Memory = VirtualAlloc(0, BitmapMemorySize, MEM_COMMIT, PAGE_READWRITE);
+    Buffer->Pitch = Buffer->Width*Buffer->BytesPerPixel; // Amount of byte offset that we need to go from start of the row to start of next row.
+
 }
 
-void
-Win32UpdateWindow(HDC DeviceContext, RECT* rect)
+static void
+Win32DisplayBufferInDeviceContext(HDC DeviceContext, int Width, int Height, win32_offscreen_buffer Buffer)
 {
-    int WindowWidth = rect->right - rect->left;
-    int WindowHeight = rect->bottom - rect->top;
-    
     int result = StretchDIBits(
 		  DeviceContext,
-		  0, 0, WindowWidth, WindowHeight,
-		  0, 0, BitmapWidth, BitmapHeight,
-		  BitmapMemory,
-		  &BitmapInfo,
+		  0, 0, Width, Height,
+		  0, 0, Buffer.Width, Buffer.Height,
+		  Buffer.Memory,
+		  &Buffer.Info,
 		  DIB_RGB_COLORS,
 		  SRCCOPY
 		  );
@@ -109,24 +130,14 @@ CALLBACK MainWindowCallback(
 	} break;
     case WM_SIZE:
 	{
-	    RECT rect;
-	    GetClientRect(Window, &rect);
-	    int X = rect.left;
-	    int Y = rect.top;
-	    int Width = rect.right - rect.left;
-	    int Height = rect.bottom - rect.top;
-	    Win32ResizeDIBSection(Width, Height);
 	    OutputDebugStringA("WM_SIZE\n");
 	} break;
     case WM_PAINT:
 	{
 	    PAINTSTRUCT Paint;
 	    HDC DeviceContext = BeginPaint(Window, &Paint);
-	    RECT rect;
-	    GetClientRect(Window, &rect);
-	    int Width = rect.right - rect.left;
-	    int Height = rect.bottom - rect.top;
-	    Win32UpdateWindow(DeviceContext, &rect);
+	    win32_window_dimension Dimension = Win32GetWindowDimension(Window);
+	    Win32DisplayBufferInDeviceContext(DeviceContext, Dimension.Width, Dimension.Height, GlobalBackBuffer);
 	    EndPaint(Window, &Paint);
 	    
 	} break;
@@ -139,7 +150,8 @@ CALLBACK MainWindowCallback(
 }
 
     
-int WINAPI WinMain(HINSTANCE Instance,
+int WINAPI
+WinMain(HINSTANCE Instance,
 		   HINSTANCE PrevInstance,
 		   PSTR CmdLine,
 		   int ShowCode)
@@ -163,6 +175,7 @@ int WINAPI WinMain(HINSTANCE Instance,
 		      0, 0, Instance, 0);
 	if (WindowHandle)
 	{
+	    Win32ResizeDIBSection(&GlobalBackBuffer, 1280, 720);
 	    Running = true;
 	    int XOffset = 0;
 	    int YOffset = 0;
@@ -175,15 +188,13 @@ int WINAPI WinMain(HINSTANCE Instance,
 		    DispatchMessage(&Message);
 		}
 
-		Win32RenderGradient(XOffset, YOffset);
+		Win32RenderGradient(GlobalBackBuffer, XOffset, YOffset);
 
 		HDC DeviceContext = GetDC(WindowHandle);
-		RECT rect;
-		GetClientRect(WindowHandle, &rect);
-		Win32UpdateWindow(DeviceContext, &rect);
+		win32_window_dimension Dimension = Win32GetWindowDimension(WindowHandle);
+		Win32DisplayBufferInDeviceContext(DeviceContext, Dimension.Width, Dimension.Height, GlobalBackBuffer);
 		ReleaseDC(WindowHandle, DeviceContext);
 		++XOffset;
-		++YOffset;
 	    }
 	}
 	else
