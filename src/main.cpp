@@ -1,26 +1,30 @@
 #include <windows.h>
 #include <stdint.h>
 #include <xinput.h>
+#include <dsound.h>
+#include <winerror.h>
 
+// XInput Compat
+// this section contains macros to define stub functions to be a fallback option
+// when we cannot load xinput dll file.
+#define X_INPUT_SET_STATE_SIGNATURE(name) DWORD WINAPI name(DWORD dwUserIndex, XINPUT_VIBRATION* Vibration)
+#define X_INPUT_GET_STATE_SIGNATURE(name) DWORD WINAPI name(DWORD dwUserIndex, XINPUT_STATE* pState)
 
-#define X_INPUT_SET_STATE(name) DWORD WINAPI name(DWORD dwUserIndex, XINPUT_VIBRATION* Vibration)
-#define X_INPUT_GET_STATE(name) DWORD WINAPI name(DWORD dwUserIndex, XINPUT_STATE* pState)
+typedef X_INPUT_SET_STATE_SIGNATURE(x_input_set_state_t);
+typedef X_INPUT_GET_STATE_SIGNATURE(x_input_get_state_t);
 
-typedef X_INPUT_SET_STATE(x_input_set_state);
-typedef X_INPUT_GET_STATE(x_input_get_state);
-
-X_INPUT_SET_STATE(XInputSetStateStub)
+X_INPUT_SET_STATE_SIGNATURE(XInputSetStateStub)
 {
-    return(0);
+    return(ERROR_DEVICE_NOT_CONNECTED);
 }
 
-X_INPUT_GET_STATE(XInputGetStateStub)
+X_INPUT_GET_STATE_SIGNATURE(XInputGetStateStub)
 {
-    return(0);
+    return(ERROR_DEVICE_NOT_CONNECTED);
 }
 
-static x_input_get_state* DyXInputGetState = XInputGetStateStub;
-static x_input_set_state *DyXInputSetState = XInputSetStateStub;
+static x_input_get_state_t* DyXInputGetState = XInputGetStateStub;
+static x_input_set_state_t* DyXInputSetState = XInputSetStateStub;
 
 #define XInputGetState DyXInputGetState
 #define XInputSetState DyXInputSetState
@@ -28,11 +32,100 @@ static x_input_set_state *DyXInputSetState = XInputSetStateStub;
 static void
 Win32LoadXInputLibrary()
 {
-    HMODULE XInputLibrary = LoadLibraryA("xinput1_3.dll");
+    HMODULE XInputLibrary = LoadLibraryA("xinput1_4.dll");
+    if (!XInputLibrary)
+    {
+	HMODULE XInputLibrary = LoadLibraryA("xinput1_3.dll");
+    }
     if (XInputLibrary)
     {
-	XInputGetState = (x_input_get_state*)GetProcAddress(XInputLibrary, "XInputGetState");
-	XInputSetState = (x_input_set_state*)GetProcAddress(XInputLibrary, "XInputSetState");
+	XInputGetState = (x_input_get_state_t*)GetProcAddress(XInputLibrary, "XInputGetState");
+	XInputSetState = (x_input_set_state_t*)GetProcAddress(XInputLibrary, "XInputSetState");
+    }
+}
+////////////////////////////////////////////////////////////////
+
+// DirectSound Compat
+// Same thing as xinput dll, macros to define stub functions to act as fallback for DirectSound calls.
+#define DIRECT_SOUND_CREATE_SIGNATURE(name) HRESULT WINAPI name(LPGUID lpGuid, LPDIRECTSOUND* ppDS, LPUNKNOWN pUnkOuter)
+typedef DIRECT_SOUND_CREATE_SIGNATURE(direct_sound_create_t);
+
+static void
+Win32InitDSound(HWND Window, int32_t BufferSize, int32_t SamplesPerSec)
+{
+    // Get library
+    HMODULE DSoundLib = LoadLibraryA("dsound.dll");
+    if (DSoundLib)
+    {
+	direct_sound_create_t* DirectSoundCreate = (direct_sound_create_t*) GetProcAddress(DSoundLib, "DirectSoundCreate");
+	LPDIRECTSOUND DirectSound;
+	if(DirectSoundCreate && SUCCEEDED(DirectSoundCreate(0, &DirectSound, 0)))
+	{
+	    WAVEFORMATEX WAVFormat = {};
+	    WAVFormat.wFormatTag = WAVE_FORMAT_PCM;
+	    WAVFormat.nChannels = 2;
+	    WAVFormat.wBitsPerSample = 16;
+	    WAVFormat.nSamplesPerSec = SamplesPerSec;
+	    WAVFormat.cbSize = 0;
+
+	    WAVFormat.nBlockAlign = (WAVFormat.nChannels * WAVFormat.wBitsPerSample) / 8;
+	    WAVFormat.nAvgBytesPerSec = WAVFormat.nSamplesPerSec*WAVFormat.nBlockAlign;
+
+	    if (SUCCEEDED(DirectSound->SetCooperativeLevel(Window, DSSCL_PRIORITY)))
+	    {
+		// create a primary buffer
+		LPDIRECTSOUNDBUFFER PrimaryBuffer;
+		DSBUFFERDESC BufferDescription = {};
+		BufferDescription.dwSize = sizeof(BufferDescription);
+		BufferDescription.dwFlags = DSBCAPS_PRIMARYBUFFER;
+		if (SUCCEEDED(DirectSound->CreateSoundBuffer(&BufferDescription, &PrimaryBuffer, 0)))
+		{
+		    HRESULT ErrorCode = PrimaryBuffer->SetFormat(&WAVFormat);
+		    if(SUCCEEDED(ErrorCode))
+		    {
+			OutputDebugStringA("[DSOUND] Primary Buffer Created\n");
+		    }
+		    else
+		    {
+			// Error
+		    }
+		}
+		else
+		{
+		    // Error
+		}
+		
+	    }
+	    
+	    else
+	    {
+		// Error
+	    }
+	    // Created Primary Buffer
+	    // Now we create a secondary buffer
+	    LPDIRECTSOUNDBUFFER SecondaryBuffer;
+	    DSBUFFERDESC BufferDescription = {};
+	    BufferDescription.dwSize = sizeof(BufferDescription);
+	    BufferDescription.dwFlags = 0;
+	    BufferDescription.dwBufferBytes = BufferSize;
+	    BufferDescription.lpwfxFormat = &WAVFormat;
+	    HRESULT ErrorCode = DirectSound->CreateSoundBuffer(&BufferDescription, &SecondaryBuffer, 0);
+	    if (SUCCEEDED(ErrorCode))
+	    {
+		// And now we play
+		OutputDebugStringA("[DSOUND] Secondary Buffer Created\n");
+
+	    }
+	    else
+	    {
+	    }
+
+	   
+	}
+	else
+	{
+
+	}
     }
 }
 
@@ -72,29 +165,29 @@ static void
 Win32RenderGradient(win32_offscreen_buffer* Buffer, int XOffset, int YOffset)
 {
     /* @Note(amirreza):
-      Our BitmapMemory is a 1D space in memory,
-      but we need to interpret it as a 2D Matrix of pixels,
-     */
+       Our BitmapMemory is a 1D space in memory,
+       but we need to interpret it as a 2D Matrix of pixels,
+    */
     
     uint8_t* Row = (uint8_t*)Buffer->Memory; // Pointer to each row in our BitmapMemory
 
     for (int Y = 0; Y < Buffer->Height; ++Y)
+    {
+	uint32_t* Pixel = (uint32_t*)Row;
+	for (int X = 0; X < Buffer->Width; ++X)
 	{
-	    uint32_t* Pixel = (uint32_t*)Row;
-	    for (int X = 0; X < Buffer->Width; ++X)
-		{
-		    // Note(Amirreza): Little Endian
-		    // Memory : BB GG RR xx
-		    // Register : xx RR GG BB
-		    int Blue = X + XOffset;
-		    int Green = Y + YOffset;
-		    uint32_t Color = (Green << 8 | Blue);
-		    *Pixel = Color;
-		    ++Pixel;
-		}
-	    Row += Buffer->Pitch;
-    
+	    // Note(Amirreza): Little Endian
+	    // Memory : BB GG RR xx
+	    // Register : xx RR GG BB
+	    int Blue = X + XOffset;
+	    int Green = Y + YOffset;
+	    uint32_t Color = (Green << 8 | Blue);
+	    *Pixel = Color;
+	    ++Pixel;
 	}
+	Row += Buffer->Pitch;
+    
+    }
 }
 
 static void
@@ -129,35 +222,35 @@ static void
 Win32DisplayBufferInDeviceContext(win32_offscreen_buffer* Buffer, HDC DeviceContext, int Width, int Height)
 {
     int result = StretchDIBits(
-		  DeviceContext,
-		  0, 0, Width, Height,
-		  0, 0, Buffer->Width, Buffer->Height,
-		  Buffer->Memory,
-		  &Buffer->Info,
-		  DIB_RGB_COLORS,
-		  SRCCOPY
-		  );
+	DeviceContext,
+	0, 0, Width, Height,
+	0, 0, Buffer->Width, Buffer->Height,
+	Buffer->Memory,
+	&Buffer->Info,
+	DIB_RGB_COLORS,
+	SRCCOPY
+	);
 }
 
 LRESULT
 CALLBACK MainWindowCallback(
-		HWND Window,
-		UINT Message,
-		WPARAM WParam,
-		LPARAM LParam)
+    HWND Window,
+    UINT Message,
+    WPARAM WParam,
+    LPARAM LParam)
 {
     LRESULT Result = 0;
     switch (Message)
     {
     case WM_CREATE:
-	{
-	    OutputDebugStringA("WM_CREATE\n");
-	} break;
+    {
+	OutputDebugStringA("WM_CREATE\n");
+    } break;
     case WM_CLOSE:
-	{
-	    Running = false;
-	    OutputDebugStringA("WM_CLOSE\n");
-	}
+    {
+	Running = false;
+	OutputDebugStringA("WM_CLOSE\n");
+    }
     case WM_SYSKEYDOWN:
     case WM_SYSKEYUP:
     case WM_KEYDOWN:
@@ -169,78 +262,82 @@ CALLBACK MainWindowCallback(
 	if (IsDownNow != WasDownBeforeThisMessage)
 	{
 	    if (VKCode == 'W')
-		{
-		    OutputDebugStringA("W key: ");
-		    if (IsDownNow) OutputDebugStringA(" is down ");
-		    if (WasDownBeforeThisMessage) OutputDebugStringA("was down");
-		    OutputDebugStringA("\n");
-		}
+	    {
+		OutputDebugStringA("W key: ");
+		if (IsDownNow) OutputDebugStringA(" is down ");
+		if (WasDownBeforeThisMessage) OutputDebugStringA("was down");
+		OutputDebugStringA("\n");
+	    }
 	    else if (VKCode == 'D')
-		{
+	    {
 
-		}
+	    }
 	    else if (VKCode == 'A')
-		{
+	    {
 
-		}
+	    }
 	    else if (VKCode == 'S')
-		{
+	    {
 
-		}
+	    }
 	    else if (VKCode == 'Q')
-		{
+	    {
 
-		}
+	    }
 	    else if (VKCode == 'E')
-		{
+	    {
 
-		}
+	    }
 	    else if (VKCode == VK_DOWN)
-		{
+	    {
 
-		}
+	    }
 	    else if (VKCode == VK_UP)
-		{
+	    {
 
-		}
+	    }
 	    else if (VKCode == VK_LEFT)
-		{
+	    {
 
-		}
+	    }
 	    else if (VKCode == VK_RIGHT)
-		{
+	    {
 
-		}
+	    }
 	    else if (VKCode == VK_SPACE)
-		{
+	    {
 
-		}
+	    }
 	    else if (VKCode == VK_ESCAPE)
-		{
+	    {
 
-		}
-
-
+	    }
+	    bool AltKeyIsDown = (LParam & (1 << 29)) != 0;
+	    if (AltKeyIsDown && VKCode == VK_F4)
+	    {
+		Running = false;
+	    }
+		
 	}
     } break;
     case WM_DESTROY:
-	{
-	    Running = false;
-	    OutputDebugStringA("WM_DESTROY\n");
-	} break;
+    {
+	Running = false;
+	OutputDebugStringA("WM_DESTROY\n");
+    } break;
     case WM_SIZE:
-	{
-	    OutputDebugStringA("WM_SIZE\n");
-	} break;
+    {
+	OutputDebugStringA("WM_SIZE\n");
+    } break;
     case WM_PAINT:
-	{
-	    PAINTSTRUCT Paint;
-	    HDC DeviceContext = BeginPaint(Window, &Paint);
-	    win32_window_dimension Dimension = Win32GetWindowDimension(Window);
-	    Win32DisplayBufferInDeviceContext(&GlobalBackBuffer, DeviceContext, Dimension.Width, Dimension.Height);
-	    EndPaint(Window, &Paint);
+    {
+	PAINTSTRUCT Paint;
+	HDC DeviceContext = BeginPaint(Window, &Paint);
+	win32_window_dimension Dimension = Win32GetWindowDimension(Window);
+	Win32DisplayBufferInDeviceContext(&GlobalBackBuffer, DeviceContext, Dimension.Width, Dimension.Height);
+	EndPaint(Window, &Paint);
 	    
-	} break;
+    } break;
     default:
 	
 	Result = DefWindowProcA(Window, Message, WParam, LParam);
@@ -252,9 +349,9 @@ CALLBACK MainWindowCallback(
     
 int WINAPI
 WinMain(HINSTANCE Instance,
-		   HINSTANCE PrevInstance,
-		   PSTR CmdLine,
-		   int ShowCode)
+	HINSTANCE PrevInstance,
+	PSTR CmdLine,
+	int ShowCode)
 {
     Win32LoadXInputLibrary();
     
@@ -266,16 +363,18 @@ WinMain(HINSTANCE Instance,
     if (RegisterClass(&WindowClass))
     {
 	HWND WindowHandle = CreateWindowA(
-		      WindowClass.lpszClassName,
-		      "ClockWork",
-		      WS_OVERLAPPEDWINDOW|WS_VISIBLE,
-		      CW_USEDEFAULT,
-		      CW_USEDEFAULT,
-		      CW_USEDEFAULT,
-		      CW_USEDEFAULT,
-		      0, 0, Instance, 0);
+	    WindowClass.lpszClassName,
+	    "ClockWork",
+	    WS_OVERLAPPEDWINDOW|WS_VISIBLE,
+	    CW_USEDEFAULT,
+	    CW_USEDEFAULT,
+	    CW_USEDEFAULT,
+	    CW_USEDEFAULT,
+	    0, 0, Instance, 0);
 	if (WindowHandle)
 	{
+	    Win32InitDSound(WindowHandle, 48000, 48000*sizeof(int16_t)*2);
+	    
 	    Win32ResizeDIBSection(&GlobalBackBuffer, 1280, 720);
 	    Running = true;
 	    int XOffset = 0;
