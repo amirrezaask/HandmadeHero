@@ -1,15 +1,33 @@
+/*
+TODO(amirreza): Make this into an actual platform layer:
+     - Saved game locations
+     - Getting a handle to our own exe
+     - Asset loading path
+     - Threading
+     - Raw Input (support for multiple keyboards)
+     - Sleep/TimeBeginPeriod
+     - ClipCursor (multi monitor support)
+     - Fullscreen support
+     - WM_SETCURSOR(Control cursor visibility)
+     - QueryCancelAutoplay
+     - WM_ACTIVATEAPP (For when we are not active application)
+     - Blit speed improvements (BitBlit)
+     - Hardware accelaration(OpenGL or Direct3D or Both ??)
+     - GetKeyboardLayout (for french keyboards, international "WASD" support)
+*/
+
+
 #include <windows.h>
 #include <stdint.h>
 #include <xinput.h>
 #include <dsound.h>
 #include <winerror.h>
 #include <math.h>
+#include "handmade.cpp"
 
 #define Pi32 3.141592653589f
 
-// XInput Compat
-// this section contains macros to define stub functions to be a fallback option
-// when we cannot load xinput dll file.
+// NOTE(amirreza): this section contains macros to define stub functions to be a fallback option when we cannot load xinput dll file.
 #define X_INPUT_SET_STATE_SIGNATURE(name) DWORD WINAPI name(DWORD dwUserIndex, XINPUT_VIBRATION* Vibration)
 #define X_INPUT_GET_STATE_SIGNATURE(name) DWORD WINAPI name(DWORD dwUserIndex, XINPUT_STATE* pState)
 
@@ -47,7 +65,7 @@ Win32LoadXInputLibrary()
     }
 }
 ////////////////////////////////////////////////////////////////
-
+// NOTE(amirreza): 
 // DirectSound Compat
 // Same thing as xinput dll, macros to define stub functions to act as fallback for DirectSound calls.
 static LPDIRECTSOUNDBUFFER GlobalDSoundSecondaryBuffer;
@@ -92,19 +110,19 @@ Win32InitDSound(HWND Window, int32_t BufferSize, int32_t SamplesPerSec)
 		    }
 		    else
 		    {
-			// Error
+			// TODO(amirreza): Error
 		    }
 		}
 		else
 		{
-		    // Error
+		    // TODO(amirreza): Error
 		}
         
 	    }
         
 	    else
 	    {
-		// Error
+		// TODO(amirreza): Error
 	    }
 	    // Created Primary Buffer
 	    // Now we create a secondary buffer
@@ -165,34 +183,6 @@ Win32GetWindowDimension(HWND Window)
     return (Result);
 }
 
-static void
-Win32RenderGradient(win32_offscreen_buffer* Buffer, int XOffset, int YOffset)
-{
-    /* @Note(amirreza):
-       Our BitmapMemory is a 1D space in memory,
-       but we need to interpret it as a 2D Matrix of pixels,
-    */
-    
-    uint8_t* Row = (uint8_t*)Buffer->Memory; // Pointer to each row in our BitmapMemory
-
-    for (int Y = 0; Y < Buffer->Height; ++Y)
-    {
-	uint32_t* Pixel = (uint32_t*)Row;
-	for (int X = 0; X < Buffer->Width; ++X)
-	{
-	    // Note(Amirreza): Little Endian
-	    // Memory : BB GG RR xx
-	    // Register : xx RR GG BB
-	    int Blue = X + XOffset;
-	    int Green = Y + YOffset;
-	    uint32_t Color = (Green << 8 | Blue);
-	    *Pixel = Color;
-	    ++Pixel;
-	}
-	Row += Buffer->Pitch;
-    
-    }
-}
 
 static void
 Win32ResizeDIBSection(win32_offscreen_buffer* Buffer, int Width, int Height)
@@ -522,9 +512,15 @@ WinMain(HINSTANCE Instance,
 		}
 
 
-
-		// Update our state
-                Win32RenderGradient(&GlobalBackBuffer, XOffset, YOffset);
+		// Render pixels
+		game_render_offscreen_buffer GameBuffer;
+		GameBuffer.Memory = GlobalBackBuffer.Memory;
+		GameBuffer.Width = GlobalBackBuffer.Width;
+		GameBuffer.Height = GlobalBackBuffer.Height;
+		GameBuffer.Pitch = GlobalBackBuffer.Pitch;
+		GameBuffer.BlueOffset = XOffset;
+		GameBuffer.GreenOffset = YOffset;
+		GameRender(&GameBuffer);
 		
 		// NOTE(amirreza): this is just for sake of testing.
 		DWORD PlayCursorPosition;
@@ -583,12 +579,12 @@ WinMain(HINSTANCE Instance,
 	}
 	else
 	{
-	    // @TODO handle error
+	    // TODO(amirreza): handle error
 	}
     }
     else
     {
-	// @TODO handle error
+	// TODO(amirreza): handle error
     }
     
 }
