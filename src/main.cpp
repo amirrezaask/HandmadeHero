@@ -426,6 +426,9 @@ WinMain(HINSTANCE Instance,
 	PSTR CmdLine,
 	int ShowCode)
 {
+    LARGE_INTEGER PerformanceFrequencyCount;
+    QueryPerformanceFrequency(&PerformanceFrequencyCount);
+    
     Win32LoadXInputLibrary();
     
     WNDCLASSA WindowClass = {};
@@ -470,6 +473,9 @@ WinMain(HINSTANCE Instance,
 	    
 	    Win32ResizeDIBSection(&GlobalBackBuffer, 1280, 720);
 	    
+	    LARGE_INTEGER LastPerformanceCounter;
+	    QueryPerformanceCounter(&LastPerformanceCounter);
+	    uint64_t LastCycleCount = __rdtsc();
 	    while(Running) {
 		// Get events from sources ( windows, Xinput, ...)
 		MSG Message;
@@ -519,7 +525,7 @@ WinMain(HINSTANCE Instance,
 
 		// Update our state
                 Win32RenderGradient(&GlobalBackBuffer, XOffset, YOffset);
-
+		
 		// NOTE(amirreza): this is just for sake of testing.
 		DWORD PlayCursorPosition;
 		DWORD WriteCursorPosition;
@@ -551,6 +557,26 @@ WinMain(HINSTANCE Instance,
 		Win32DisplayBufferInDeviceContext(&GlobalBackBuffer, DeviceContext, Dimension.Width, Dimension.Height);
 		ReleaseDC(WindowHandle, DeviceContext);
 		++XOffset;
+
+		uint64_t EndCycleCount = __rdtsc();
+
+		LARGE_INTEGER EndPerformanceCounter;
+		QueryPerformanceCounter(&EndPerformanceCounter);
+
+		int64_t CyclesElapsed = EndCycleCount - LastCycleCount;
+		int64_t CounterElapsed = EndPerformanceCounter.QuadPart - LastPerformanceCounter.QuadPart;
+		// CounterElapsed(COUNT)/PerformanceFrequencyCount(COUNT/SEC) => SEC
+		
+		int32_t MSPerFrame = (int32_t)(((1000*CounterElapsed) / PerformanceFrequencyCount.QuadPart));
+		// COUNT/SEC % COUNT/FRAME => FRAME/SEC
+		int32_t FPS = (PerformanceFrequencyCount.QuadPart/CounterElapsed);
+		int32_t MCPF = (int32_t)(CyclesElapsed/(1000*1000));
+		
+		LastPerformanceCounter = EndPerformanceCounter;
+		LastCycleCount = EndCycleCount;
+		char Buffer[256];
+		wsprintf(Buffer, "ms/frame: %dms, FPS: %d, %dMc/f\n", MSPerFrame, FPS, MCPF);
+		OutputDebugStringA(Buffer);
 	    }
 	}
 	else
