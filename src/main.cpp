@@ -458,7 +458,7 @@ WinMain(HINSTANCE Instance,
 	    SoundOutput.WavePeriod = SoundOutput.SamplesPerSecond/SoundOutput.ToneHz;
 	    SoundOutput.BytesPerSample = sizeof(int16_t) * 2;
 	    SoundOutput.DSoundBufferSize = SoundOutput.SamplesPerSecond * SoundOutput.BytesPerSample;
-	    Win32InitDSound(WindowHandle, SoundOutput.SamplesPerSecond, SoundOutput.DSoundBufferSize);
+	    Win32InitDSound(WindowHandle, SoundOutput.DSoundBufferSize, SoundOutput.SamplesPerSecond);
 
 
 	    // Fill buffer for first time and play sound
@@ -550,6 +550,8 @@ WinMain(HINSTANCE Instance,
 
 		    Win32FillSoundBuffer(&SoundOutput, ByteToLock, BytesToWrite);
 		}
+
+		
 		
 		// Draw pixels on our screen
 		HDC DeviceContext = GetDC(WindowHandle);
