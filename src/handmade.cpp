@@ -1,16 +1,9 @@
 #include "handmade.h"
-struct game_render_offscreen_buffer
-{
-    void* Memory;
-    int Width;
-    int Height;
-    int Pitch;
-    int BlueOffset;
-    int GreenOffset;
-};
+#include "stdint.h"
+
 
 static void
-GameRender(game_render_offscreen_buffer* Buffer)
+GameRenderGradient(game_render_offscreen_buffer* Buffer)
 {
     // NOTE(amirreza): Our BitmapMemory is a 1D space in memory, but we need to interpret it as a 2D Matrix of pixels,
     
@@ -33,4 +26,36 @@ GameRender(game_render_offscreen_buffer* Buffer)
 	Row += Buffer->Pitch;
     
     }
+
+}
+
+
+static void 
+GameOutputSound(game_sound_output_buffer* SoundBuffer, int ToneHz)
+{
+    static float tSine;
+    int16_t ToneVolume = 3000;
+    int WavePeriod = SoundBuffer->SamplesPerSecond/ToneHz;
+    
+    int16_t* SoundOut = (int16_t*) SoundBuffer->Samples;
+    
+    for(int SampleIndex = 0;
+	SampleIndex < SoundBuffer->SampleCount;
+	++SampleIndex)
+    {
+	float SineValue = sinf(tSine);
+	int16_t SampleValue = (int16_t)(SineValue * ToneVolume);
+	*SoundOut++ = SampleValue;
+	*SoundOut++ = SampleValue;
+
+	tSine += 2.0f*Pi32*1.0f/(float)WavePeriod;
+    }
+
+}
+
+static void
+GameUpdateAndRender(game_render_offscreen_buffer* Buffer, game_sound_output_buffer* SoundBuffer, int ToneHz)
+{
+    GameRenderGradient(Buffer);
+    GameOutputSound(SoundBuffer, ToneHz);
 }
