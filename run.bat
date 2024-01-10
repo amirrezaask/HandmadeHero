@@ -4,4 +4,4 @@ call build.bat
 
 
 
-start .\build-out\main.exe
+start .\build-out\win32_handmadehero.exe
