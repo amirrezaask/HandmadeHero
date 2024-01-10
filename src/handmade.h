@@ -1,7 +1,23 @@
+/*
+  HANDMADE_SLOW: slow code is allowed
+  HANDMADE_INTERNAL: Internal build for me not public
+ */
+
 #if !defined(HANDMADE_H)
+
+#if HANDMADE_SLOW
+#define Assert(Expr) \
+    if (!(Expr)) { *(int*) 0 = 0; }
+#else
+#define Assert(Expr)
+#endif
 
 
 #define ArrayCount(Array) (sizeof(Array) / sizeof((Array)[0]))
+#define Kilobytes(Size) ((Size) * 1024)
+#define Megabytes(Size) ((Size) * 1024 * 1024)
+#define Gigabytes(Size) ((Size) * 1024 * 1024 * 1024)
+#define Terrabytes(Size) ((Size) * 1024 * 1024 * 1024 * 1024)
 
 struct game_button_state
 {
@@ -37,6 +53,7 @@ struct game_controller_input
 
 struct game_input
 {
+    //TODO(amirreza): clock here.
     game_controller_input Controllers[4];
 };
   
@@ -56,9 +73,26 @@ struct game_sound_output_buffer
     int SamplesPerSecond;
 };
 
+struct game_memory
+{
+    bool IsInitialized;
+    uint64_t PermanentStorageSize;
+    void* PermanentStorage;
+    
+    uint64_t TransientStorageSize;
+    void* TransientStorage;
+    
+};
 
 void GameOutputSound(game_sound_output_buffer* Buffer);
-void GameUpdateAndRender(game_input* Input, game_render_offscreen_buffer* Buffer, game_sound_output_buffer* SoundBuffer);
+void GameUpdateAndRender(game_memory* Memory, game_input* Input, game_render_offscreen_buffer* Buffer, game_sound_output_buffer* SoundBuffer);
+
+struct game_state
+{
+    int ToneHz;
+    int BlueOffset;
+    int GreenOffset;
+};
 
 #define HANDMADE_H
 #endif

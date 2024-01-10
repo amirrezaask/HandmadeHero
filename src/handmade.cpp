@@ -2,10 +2,9 @@
 #include "stdint.h"
 
 static void
-GameRenderGradient(game_render_offscreen_buffer* Buffer, int BlueOffset)
+GameRenderGradient(game_render_offscreen_buffer* Buffer, int BlueOffset, int GreenOffset)
 {
 
-    static int GreenOffset = 0;
     // NOTE(amirreza): Our BitmapMemory is a 1D space in memory, but we need to interpret it as a 2D Matrix of pixels,
     
     uint8_t* Row = (uint8_t*)Buffer->Memory; // Pointer to each row in our BitmapMemory
@@ -55,18 +54,26 @@ GameOutputSound(game_sound_output_buffer* SoundBuffer, int ToneHz)
 }
 
 static void
-GameUpdateAndRender(game_input *Input, game_render_offscreen_buffer* Buffer, game_sound_output_buffer* SoundBuffer)
+GameUpdateAndRender(game_memory* Memory, game_input *Input, game_render_offscreen_buffer* Buffer, game_sound_output_buffer* SoundBuffer)
 {
-    int ToneHz = 256;
-    static int BlueOffset = 0;
+    Assert(sizeof(game_state) <= Memory->PermanentStorageSize);
+    game_state* GameState = (game_state *) Memory->PermanentStorage;
+    if (!Memory->IsInitialized)
+    {
+	GameState->ToneHz = 256;
+	GameState->BlueOffset = 0;
+	GameState->GreenOffset = 0;
+	Memory->IsInitialized = true;
+    }
+    
 
     game_controller_input* Input0 = &Input->Controllers[0];
     if (Input0->IsAnalog)
     {
-	BlueOffset += (int)4.0f*(Input0->EndX);
-	ToneHz = 256 + (int)(128.0f*(Input0->EndY));
+	GameState->BlueOffset += (int)4.0f*(Input0->EndX);
+	GameState->ToneHz = 256 + (int)(128.0f*(Input0->EndY));
     }
     
-    GameRenderGradient(Buffer, BlueOffset);
-    GameOutputSound(SoundBuffer, ToneHz);
+    GameRenderGradient(Buffer, GameState->BlueOffset, GameState->GreenOffset);
+    GameOutputSound(SoundBuffer, GameState->ToneHz);
 }

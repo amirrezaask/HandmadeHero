@@ -453,12 +453,12 @@ WinMain(HINSTANCE Instance,
     WindowClass.style = CS_OWNDC | CS_VREDRAW | CS_HREDRAW;
     WindowClass.lpfnWndProc = MainWindowCallback;
     WindowClass.hInstance = Instance;
-    WindowClass.lpszClassName = "ClockWorkWindowClass";
+    WindowClass.lpszClassName = "HandmadeHeroWindowClass";
     if (RegisterClass(&WindowClass))
     {
 	HWND WindowHandle = CreateWindowA(
 	    WindowClass.lpszClassName,
-	    "ClockWork",
+	    "HandmadeHero",
 	    WS_OVERLAPPEDWINDOW|WS_VISIBLE,
 	    CW_USEDEFAULT,
 	    CW_USEDEFAULT,
@@ -475,8 +475,30 @@ WinMain(HINSTANCE Instance,
 	    SoundOutput.DSoundBufferSize = SoundOutput.SamplesPerSecond * SoundOutput.BytesPerSample;
 	    SoundOutput.LatencySampleCount = SoundOutput.SamplesPerSecond/15;
 	    Win32InitDSound(WindowHandle, SoundOutput.DSoundBufferSize, SoundOutput.SamplesPerSecond);
-	    int16_t* SoundSamplesMemory = (int16_t*) VirtualAlloc(0, SoundOutput.DSoundBufferSize, MEM_COMMIT, PAGE_READWRITE);
+	    int16_t* SoundSamplesMemory = (int16_t*) VirtualAlloc(0, SoundOutput.DSoundBufferSize, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
 
+#if HANDMADE_INTERNAL
+	    LPVOID BaseAddress = (LPVOID)Terrabytes((uint64_t)2);
+
+#else
+	    LPVOID BaseAddress = 0;
+#endif
+	    
+	    game_memory GameMemory = {};
+	    GameMemory.PermanentStorageSize = Megabytes(64);
+	    GameMemory.TransientStorageSize = Gigabytes((uint64_t) 4);
+
+	    uint64_t TotalSize = GameMemory.PermanentStorageSize + GameMemory.TransientStorageSize;
+
+	    GameMemory.PermanentStorage = VirtualAlloc(BaseAddress, TotalSize, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
+	    GameMemory.TransientStorage = (((uint8_t*)GameMemory.PermanentStorage) + TotalSize);
+
+
+	    if ((GameMemory.PermanentStorage == 0) || (SoundSamplesMemory == 0) || (GameMemory.TransientStorage == 0))
+	    {
+		//TODO(amirreza): log error
+		return 0;
+	    }
 	    // game input buffers
 	    game_input Input[2];
 	    game_input* NewInput = &Input[0];
@@ -621,7 +643,7 @@ WinMain(HINSTANCE Instance,
 		GameBuffer.Width = GlobalBackBuffer.Width;
 		GameBuffer.Height = GlobalBackBuffer.Height;
 		GameBuffer.Pitch = GlobalBackBuffer.Pitch;
-		GameUpdateAndRender(NewInput, &GameBuffer, &SoundBuffer);
+		GameUpdateAndRender(&GameMemory, NewInput, &GameBuffer, &SoundBuffer);
 
 		if(SoundIsValid)
 		{
@@ -670,6 +692,8 @@ WinMain(HINSTANCE Instance,
     {
 	// TODO(amirreza): handle error
     }
-    
+
+
+    return 0;
 }
 
