@@ -64,6 +64,15 @@ GameUpdateAndRender(game_memory* Memory, game_input *Input, game_render_offscree
 	GameState->BlueOffset = 0;
 	GameState->GreenOffset = 0;
 	Memory->IsInitialized = true;
+
+	char *FileName = "test.bmp";
+	debug_read_file_result BitmapMemory = DEBUGPlatformReadEntireFile(FileName);
+
+	if (BitmapMemory.Contents)
+	{
+	    DEBUGPlatformWriteEntireFile("W:/test.out", BitmapMemory.Contents, BitmapMemory.ContentsSize);
+	    DEBUGPlatformFreeFileMemory(BitmapMemory.Contents);
+	}
     }
     
 

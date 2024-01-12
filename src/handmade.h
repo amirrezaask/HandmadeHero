@@ -12,6 +12,18 @@
 #define Assert(Expr)
 #endif
 
+#if HANDMADE_INTERNAL
+struct debug_read_file_result
+{
+    uint32_t ContentsSize;
+    void* Contents;
+	
+};
+static debug_read_file_result DEBUGPlatformReadEntireFile(char* FileName);
+static void  DEBUGPlatformFreeFileMemory(void *Memory);
+static bool  DEBUGPlatformWriteEntireFile(char *FilName, void* Memory, uint32_t MemorySize);
+#endif
+
 
 #define ArrayCount(Array) (sizeof(Array) / sizeof((Array)[0]))
 #define Kilobytes(Size) ((Size) * 1024)
