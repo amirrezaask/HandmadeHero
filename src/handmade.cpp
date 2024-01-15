@@ -4,9 +4,8 @@
 static void
 GameRenderGradient(game_render_offscreen_buffer* Buffer, int BlueOffset, int GreenOffset)
 {
-
     // NOTE(amirreza): Our BitmapMemory is a 1D space in memory, but we need to interpret it as a 2D Matrix of pixels,
-    
+
     uint8_t* Row = (uint8_t*)Buffer->Memory; // Pointer to each row in our BitmapMemory
 
     for (int Y = 0; Y < Buffer->Height; ++Y)
@@ -79,7 +78,7 @@ GameUpdateAndRender(game_memory* Memory, game_input *Input, game_render_offscree
     game_controller_input* Input0 = &Input->Controllers[0];
     if (Input0->IsAnalog)
     {
-	GameState->BlueOffset += (int)4.0f*(Input0->EndX);
+	GameState->BlueOffset += (int)(4.0f*(Input0->EndX));
 	GameState->ToneHz = 256 + (int)(128.0f*(Input0->EndY));
     }
     
