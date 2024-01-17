@@ -41,33 +41,53 @@ struct game_button_state
 struct game_controller_input
 {
     bool IsAnalog;
+    bool IsConnected;
     
-    game_button_state Up;
-    game_button_state Down;
-    game_button_state Left;
-    game_button_state Right;
-    game_button_state LeftShoulder;
-    game_button_state RightShoulder;
+    union
+    {
+	game_button_state Buttons[13];
+	struct
+	{
+	    game_button_state MoveUp;
+	    game_button_state MoveDown;
+	    game_button_state MoveLeft;
+	    game_button_state MoveRight;
+	    
+	    game_button_state ActionUp;
+	    game_button_state ActionDown;
+	    game_button_state ActionLeft;
+	    game_button_state ActionRight;
+	    
+	    game_button_state LeftShoulder;
+	    game_button_state RightShoulder;
+	    
+	    game_button_state Start;
+	    game_button_state Back;
 
-    float StartX;
-    float StartY;
+            //NOTE(amirreza): Never add a button after this.
+	    game_button_state LAST_BUTTON;
 
-    float MinX;
-    float MinY;
+	};
 
-    float MaxX;
-    float MaxY;
-
-    float EndX;
-    float EndY;
+    };
+    float StickAverageX;
+    float StickAverageY;
 };
 
 
 struct game_input
 {
     //TODO(amirreza): clock here.
-    game_controller_input Controllers[4];
+    game_controller_input Controllers[5];
 };
+
+inline game_controller_input* GetController(game_input* Input, int ControllerIndex)
+{
+    Assert(ControllerIndex < ArrayCount(Input->Controllers));
+    game_controller_input* Controller = &Input->Controllers[ControllerIndex];
+
+    return Controller;
+}
   
 struct game_render_offscreen_buffer
 {
