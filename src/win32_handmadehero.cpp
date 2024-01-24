@@ -55,9 +55,6 @@ static x_input_set_state_t* DyXInputSetState = XInputSetStateStub;
 #define XInputSetState DyXInputSetState
 
 
-
-
-
 static debug_read_file_result
 DEBUGPlatformReadEntireFile(char* FileName)
 {
@@ -233,7 +230,9 @@ Win32InitDSound(HWND Window, int32_t BufferSize, int32_t SamplesPerSec)
 }
 
 
-static bool Running;
+static bool GlobalRunning;
+static int64_t GlobalPerfCountFrequency;
+
 
 static win32_offscreen_buffer GlobalBackBuffer;
 
@@ -317,14 +316,16 @@ CALLBACK MainWindowCallback(
     } break;
     case WM_CLOSE:
     {
-	Running = false;
+	GlobalRunning = false;
 	OutputDebugStringA("WM_CLOSE\n");
-    }
+    } break;
     case WM_SYSKEYDOWN:
     case WM_SYSKEYUP:
     case WM_KEYDOWN:
     case WM_KEYUP:
     {
+	// no key should come here.
+	Assert(false);
 	uint32_t VKCode = (uint32_t)WParam;
 	bool WasDownBeforeThisMessage = ((LParam & (1 << 30)) != 0);
 	bool IsDownNow = ((LParam & (1 << 31)) == 0);
@@ -384,14 +385,14 @@ CALLBACK MainWindowCallback(
 	    bool AltKeyIsDown = (LParam & (1 << 29)) != 0;
 	    if (AltKeyIsDown && VKCode == VK_F4)
 	    {
-		Running = false;
+		GlobalRunning = false;
 	    }
         
 	}
     } break;
     case WM_DESTROY:
     {
-	Running = false;
+	GlobalRunning = false;
 	OutputDebugStringA("WM_DESTROY\n");
     } break;
     case WM_SIZE:
@@ -538,6 +539,22 @@ Win32ProcessKeyboardMessage(game_button_state* NewState, bool IsDown)
     ++NewState->HalfTransitionCount;
 }
 
+
+inline LARGE_INTEGER
+Win32GetWallClock()
+{
+    LARGE_INTEGER PerformanceCounter;
+    QueryPerformanceCounter(&PerformanceCounter);
+    return PerformanceCounter;
+}
+
+inline float
+Win32GetSecondsElapsed(LARGE_INTEGER Start, LARGE_INTEGER End)
+{
+    return (((1000.0f * (float)(End.QuadPart - Start.QuadPart))
+			      / ((float)GlobalPerfCountFrequency)));
+}
+
     
 int WINAPI
 WinMain(HINSTANCE Instance,
@@ -547,6 +564,11 @@ WinMain(HINSTANCE Instance,
 {
     LARGE_INTEGER PerformanceFrequencyCount;
     QueryPerformanceFrequency(&PerformanceFrequencyCount);
+    GlobalPerfCountFrequency = PerformanceFrequencyCount.QuadPart;
+
+    // Set windows scheduler to check for us every milliseconds, since we do sleeps.
+    UINT DesiredSchedulerMS = 1;
+    bool SleepIsGranular = timeBeginPeriod(DesiredSchedulerMS) == TIMERR_NOERROR;
     
     Win32LoadXInputLibrary();
     
@@ -555,6 +577,12 @@ WinMain(HINSTANCE Instance,
     WindowClass.lpfnWndProc = MainWindowCallback;
     WindowClass.hInstance = Instance;
     WindowClass.lpszClassName = "HandmadeHeroWindowClass";
+
+    int MonitorRefreshHz = 60;
+    int GameUpdateHz = MonitorRefreshHz/2;
+    float TargetSecondsPerFrame = 1.0f / (float)GameUpdateHz;
+
+    
     if (RegisterClass(&WindowClass))
     {
 	HWND WindowHandle = CreateWindowA(
@@ -617,15 +645,14 @@ WinMain(HINSTANCE Instance,
 	    // Initilize graphics render system
 	    int XOffset = 0;
 	    int YOffset = 0;
-	    Running = true;
+	    GlobalRunning = true;
 	    
 	    Win32ResizeDIBSection(&GlobalBackBuffer, 1280, 720);
 	    
-	    LARGE_INTEGER LastPerformanceCounter;
-	    QueryPerformanceCounter(&LastPerformanceCounter);
+	    LARGE_INTEGER LastPerformanceCounter = Win32GetWallClock();
 	    uint64_t LastCycleCount = __rdtsc();
 
-	    while(Running) {
+	    while(GlobalRunning) {
 		game_controller_input* NewKeyboardController = GetController(NewInput, 0);
 		game_controller_input* OldKeyboardController = GetController(OldInput, 0);
 		game_controller_input ZeroController = {};
@@ -710,7 +737,7 @@ WinMain(HINSTANCE Instance,
 
 		    default:
 		    {
-			if (Message.message == WM_QUIT) Running = false;
+			if (Message.message == WM_QUIT) GlobalRunning = false;
 			TranslateMessage(&Message);
 			DispatchMessage(&Message);
 
@@ -867,26 +894,47 @@ WinMain(HINSTANCE Instance,
 		ReleaseDC(WindowHandle, DeviceContext);
 		++XOffset;
 
-		uint64_t EndCycleCount = __rdtsc();
 
-		LARGE_INTEGER EndPerformanceCounter;
-		QueryPerformanceCounter(&EndPerformanceCounter);
-
-		int64_t CyclesElapsed = EndCycleCount - LastCycleCount;
-		int64_t CounterElapsed = EndPerformanceCounter.QuadPart - LastPerformanceCounter.QuadPart;
-		// CounterElapsed(COUNT)/PerformanceFrequencyCount(COUNT/SEC) => SEC
+		LARGE_INTEGER WorkCounter = Win32GetWallClock();
+		float WorkSecondsElapsed = Win32GetSecondsElapsed(LastPerformanceCounter, WorkCounter);
 		
-		int32_t MSPerFrame = (int32_t)(((1000*CounterElapsed) / PerformanceFrequencyCount.QuadPart));
-		// COUNT/SEC % COUNT/FRAME => FRAME/SEC
-		int32_t FPS = (int32_t)(PerformanceFrequencyCount.QuadPart/CounterElapsed);
-		int32_t MCPF = (int32_t)(CyclesElapsed/(1000*1000));
+
+		float SecondsElapsedForFrame = WorkSecondsElapsed;
+		if (SecondsElapsedForFrame < TargetSecondsPerFrame)
+		{
+		    while(SecondsElapsedForFrame < TargetSecondsPerFrame)
+		    {
+			if (SleepIsGranular)
+			{
+			    DWORD SleepMS = (DWORD)(1000.0f * (TargetSecondsPerFrame - SecondsElapsedForFrame));
+			    Sleep(SleepMS);
+			}
+			WorkSecondsElapsed = Win32GetSecondsElapsed(LastPerformanceCounter, Win32GetWallClock());
+		    }
+		}
+		else
+		{
+		    //TODO: if we are here, we have missed a frame, our loop took to much time and we missed our frame window.
+		}
+		
+		
+		// int32_t MSPerFrame = (int32_t)(((1000*WorkCounter.QuadPart) / PerformanceFrequencyCount.QuadPart));
+		// // COUNT/SEC % COUNT/FRAME => FRAME/SEC
+		// int32_t FPS = (int32_t)(PerformanceFrequencyCount.QuadPart/WorkCounter.QuadPart);
+		// int32_t MCPF = (int32_t)(CyclesElapsed/(1000*1000));
 		
 		// char Buffer[256];
 		// wsprintf(Buffer, "ms/frame: %dms, FPS: %d, %dMc/f\n", MSPerFrame, FPS, MCPF);
 		// OutputDebugStringA(Buffer);
 
-		LastPerformanceCounter = EndPerformanceCounter;
+		LARGE_INTEGER EndCounter = Win32GetWallClock();
+		LastPerformanceCounter = EndCounter;
+
+		// rdtsc is CPU specific ////
+		uint64_t EndCycleCount = __rdtsc();
+		int64_t CyclesElapsed = EndCycleCount - LastCycleCount;
 		LastCycleCount = EndCycleCount;
+		////////////////////////////////////////
 
 		game_input* Temp = NewInput;
 		NewInput = OldInput;
@@ -902,7 +950,6 @@ WinMain(HINSTANCE Instance,
     {
 	// TODO(amirreza): handle error
     }
-
 
     return 0;
 }
